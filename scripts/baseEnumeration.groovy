@@ -12,6 +12,12 @@ ACTIVE_DIRECTORY_NODE_NAME = "Active Directory"
 RESOURCE_GROUPS_NODE_NAME = "Resource Groups"
 VM_NODE_NAME = "Virtual Machines"
 jsonSlurper = new JsonSlurper()
+/**
+ * Executes a bash command and returns the result as a JSON string.
+ *
+ * @param cmd bash command in text
+ * @return JSON output from the command
+ */
 def getJSONFromCmd(cmd) {
     Process p = ['bash', '-c', cmd].execute()
     def out = new StringBuffer()
@@ -26,7 +32,6 @@ def getJSONFromCmd(cmd) {
 
     return jsonSlurper.parseText(out.toString())
 }
-
 /**
  * Authenticates to Azure cloud with credentials provided as attributes to the root node.
  * @param root map root node
@@ -48,9 +53,6 @@ def authenticate(root) {
     }
 }
 
-
-// todo : enumerate resource groups
-// todo : enumerate active directory
 /**
  * Enumerates all obtainable Active Directory groups.
  *
@@ -63,7 +65,7 @@ def enumerateADGroups(root) {
     def ad = root.createChild(ACTIVE_DIRECTORY_NODE_NAME)
     ui.informationMessage("Found " + adGroups.size + " AD groups...")
 
-    for(group in adGroups) {
+    for (group in adGroups) {
         def g = ad.createChild(group.displayName)
         def att = g.getAttributes()
         att
@@ -73,6 +75,7 @@ def enumerateADGroups(root) {
         g["samAccountName"] = group.samAccountName
         enumerateADGroupMembers(g, 1)
     }
+    ad.setFolded(true)
 }
 /**
  * Enumerates Active Directory group members for an Active Directory group specified by the provided node.
@@ -81,7 +84,7 @@ def enumerateADGroups(root) {
  * @param descentLevel level of recursion (if a member is an Active Directory group)
  * @throws Exception if anything goes wrong
  */
-def enumerateADGroupMembers(adGroupNode, descentLevel) throws Exception{
+def enumerateADGroupMembers(adGroupNode, descentLevel) throws Exception {
     def groupObjectId = adGroupNode["objectId"]
     def getADGroupMembersCmd = "az ad group member list -g $groupObjectId |" +
             "jq '[.[] | {displayName: .displayName, mailNickname: .mailNickname," +
@@ -92,7 +95,7 @@ def enumerateADGroupMembers(adGroupNode, descentLevel) throws Exception{
     }
 
     adGroupNode["numberOfMembers"] = members.size
-    for(member in members) {
+    for (member in members) {
         def m = adGroupNode.createChild(member.displayName)
         m["mailNickname"] = member.mailNickname
         m["objectType"] = member.objectType
@@ -103,6 +106,7 @@ def enumerateADGroupMembers(adGroupNode, descentLevel) throws Exception{
         if (descentLevel >= 0) {
             enumerateADGroupMembers(m, descentLevel - 1)
         }
+        m.setFolded(true)
     }
 }
 /**
@@ -122,24 +126,40 @@ def enumerateResourceGroups(root) {
         rg["location"] = rgroup.location
         rg["tags"] = rgroup.tags
     }
+    rgroupsNode.setFolded(true)
 }
 
 def enumerateVMs(resourceGroupNode) {
-    def vmsNode = resourceGroupNode.createChild(VM_NODE_NAME)
     def getVMBasicCmd = "az vm list -g $resourceGroupNode.name | jq '[.[] | {id:.id, vmId:.vmId, name:.name," +
             "networkInterfaces:.networkProfile.networkInterfaces,image:.storageProfile.imageReference, osDisk:.storageProfile.osDisk}]'"
     def VMBasicInfos = getJSONFromCmd(getVMBasicCmd)
-    for(vm in VMBasicInfos) {
+    if (VMBasicInfos.isEmpty) {
+        return
+    }
+    def vmsNode = resourceGroupNode.createChild(VM_NODE_NAME)
+    vmsNode["noVMs"] = VMBasicInfos.size
+    for (vm in VMBasicInfos) {
         def vmNode = vmsNode.createChild(vm.name)
         vmNode["id"] = vm.id
         vmNode["vmId"] = vm.Id
-        //todo : obradi slozene podatke
+        def netIntsNode = vmNode.createChild("Network Interfaces")
+//        ui.informationMessage("Found $vm.networkInterfaces.size network interfaces")
+        for (i = 0; i < vm.networkInterfaces.size; i++) {
+            def nInt = vm.networkInterfaces.get(i)
+            def nIntNode = netIntsNode.createChild("Net Interface $i")
+            nIntNode["id"] = nInt.id
+//            nIntNode
+        }
+
+        def imageNode = vmNode.createChild("Image")
+        imageNode["exactVersion"] = vm.image.exactVersion
+        imageNode.createChild("$vm.image.offer-$vm.image.publisher-$vm.image.sku")
     }
+    vmsNode.setFolded(true)
 }
-// todo : enumerate VMs
 // todo : enumerate key vaults
 // todo : enumerate storage
 // todo : enumerate networks
-
+// todo : na kraju obrade, nadgrupu treba foldati
 
 authenticate(node.map.getRoot())
