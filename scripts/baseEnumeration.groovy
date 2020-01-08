@@ -9,6 +9,8 @@ import groovy.json.JsonSlurper
  */
 
 ACTIVE_DIRECTORY_NODE_NAME = "Active Directory"
+RESOURCE_GROUPS_NODE_NAME = "Resource Groups"
+VM_NODE_NAME = "Virtual Machines"
 jsonSlurper = new JsonSlurper()
 def getJSONFromCmd(cmd) {
     Process p = ['bash', '-c', cmd].execute()
@@ -69,6 +71,7 @@ def enumerateADGroups(root) {
         g["mailNickname"] = group.mailNickname
         g["securityID"] = group.securityID
         g["samAccountName"] = group.samAccountName
+        enumerateADGroupMembers(g, 1)
     }
 }
 /**
@@ -97,9 +100,40 @@ def enumerateADGroupMembers(adGroupNode, descentLevel) throws Exception{
         m["userType"] = member.userType
         m["userPrincipalName"] = member.userPrincipalName
         // todo: ako je objekt grupa, onda rekurzivno pozovi (do n razina?)
-        if (descentLevel > 0) {
+        if (descentLevel >= 0) {
             enumerateADGroupMembers(m, descentLevel - 1)
         }
+    }
+}
+/**
+ * Enumerates all accessible resource groups.
+ *
+ * @param root map root node
+ */
+def enumerateResourceGroups(root) {
+    def getResourceGroupsCmd = "az group list | jq 'sort_by(.name) | .'"
+    def rgroups = getJSONFromCmd(getResourceGroupsCmd)
+    def rgroupsNode = root.createChild(RESOURCE_GROUPS_NODE_NAME)
+    ui.informationMessage("Found " + rgroups.size + " resource groups...")
+    rgroupsNode["noResourceGroups"] = rgroups.size
+    for (rgroup in rgroups) {
+        def rg = rgroupsNode.createChild(rgroup.name)
+        rg["id"] = rgroup.id
+        rg["location"] = rgroup.location
+        rg["tags"] = rgroup.tags
+    }
+}
+
+def enumerateVMs(resourceGroupNode) {
+    def vmsNode = resourceGroupNode.createChild(VM_NODE_NAME)
+    def getVMBasicCmd = "az vm list -g $resourceGroupNode.name | jq '[.[] | {id:.id, vmId:.vmId, name:.name," +
+            "networkInterfaces:.networkProfile.networkInterfaces,image:.storageProfile.imageReference, osDisk:.storageProfile.osDisk}]'"
+    def VMBasicInfos = getJSONFromCmd(getVMBasicCmd)
+    for(vm in VMBasicInfos) {
+        def vmNode = vmsNode.createChild(vm.name)
+        vmNode["id"] = vm.id
+        vmNode["vmId"] = vm.Id
+        //todo : obradi slozene podatke
     }
 }
 // todo : enumerate VMs
