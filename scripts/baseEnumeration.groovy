@@ -239,8 +239,68 @@ def enumerateKeys(keyVaultNode) {
         //todo ostali parametri kljuca
     }
 }
-// todo : enumerate secrets
-// todo : enumerate certificates
+/**
+ * Enumerates secrets for the specified key vault node.
+ *
+ * @param keyVaultNode key vault node
+ */
+def enumerateSecrets(keyVaultNode) {
+    def secretsIdCmd = "az keyvault secret list --vault-name $keyVaultNode.name | jq '[.[] | .id]'"
+    def secretIds = getJSONFromCmd(secretsIdCmd)
+    if (secretIds.size == 0) {
+        return
+    }
+
+    def secretsNode = keyVaultNode.createChild("Secrets")
+    secretsNode["noOfSecrets"] = secretIds.size
+    for (sid in secretIds) {
+        def secretName = extractResourceNameFromId(sid)
+        def s = secretsNode.createChild(secretName)
+
+        def secCmd = "az keyvault secret show --vault-name $vault.name -n $secretName"
+        def secret = getJSONFromCmd(secCmd)
+        s["created"] = secret.attributes.created
+        s["enabled"] = secret.attributes.enabled
+        s["expires"] = secret.attributes.expires
+        s["updated"] = secret.attributes.updated
+        s["contentType"] = secret.contentType
+        s["id"] = sid
+        s.createChild(secret.value)
+    }
+}
+/**
+ * Enumerates certificates in the specified key vault.
+ *
+ * @param keyVaultNode key vault node
+ */
+def enumerateCertificates(keyVaultNode) {
+    def certIdsCmd = "az keyvault certificate list --vault-name $vault.name | jq '[.[] | .id]'"
+    def certIds = getJSONFromCmd(certIdsCmd)
+    if (certIds.size == 0) {
+        return
+    }
+
+    def certsNode = keyVaultNode.createChild("Certificates")
+    certsNode["noOfCertificates"] = certIds.size
+    for (cid in certIds) {
+        def certName = extractResourceNameFromId(cid)
+        def c = certsNode.createChild(certName)
+        // todo : library za citanje certifikata
+        def certCmd = "az keyvault certificate show --id $cid"
+        def cert = getJSONFromCmd(certCmd)
+        c["created"] = cert.attributes.created
+        c["expires"] = cert.attributes.expires
+        c["updates"] = cert.attributes.updates
+        c["id"] = cid
+        c["enabled"] = cert.attributes.enabled
+        c["contentType"] = cert.policy.secretProperties.contentType
+        c.createChild(cert.cer)
+        def keyDetails = c.createChild("Key Details")
+        keyDetails["keySize"] = cert.policy.keyProperties.keySize
+        keyDetails["keyTipe"] = cert.policy.keyProperties.keyType
+        // todo dovrsiti
+    }
+}
 // todo : enumerate storage
 // todo : enumerate networks
 
